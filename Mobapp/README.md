@@ -62,6 +62,8 @@ flutter pub get
 
 3. Run the app on your target platform.
 
+No additional Supabase setup is required for basic testing in the current project. The app already points to a configured Supabase instance through [api_service.dart](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/lib/api_service.dart).
+
 ## Run For Web
 
 This is the fastest option for UI testing.
@@ -146,6 +148,18 @@ Current automated coverage is minimal and mainly checks that the app opens on th
 ## Supabase Configuration
 
 This app currently uses the Supabase project values already defined in [api_service.dart](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/lib/api_service.dart).
+
+For most testers:
+
+- you do not need to create your own Supabase project
+- you can run the app immediately with the existing configuration
+- sign up, login, body setup save, and storage-backed image flows should work against the shared configured project
+
+You only need your own Supabase project if:
+
+- you want an isolated backend for your own testing
+- the shared project becomes unavailable
+- you want to modify the schema, storage rules, or auth configuration
 
 The mobile app expects these Supabase resources to exist:
 
