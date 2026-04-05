@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await apiService.initialize();
   runApp(const MyApp());
 }
 
@@ -13,7 +14,6 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const appBlack = Color(0xFF050505);
-    const cardBlack = Color(0xFF111111);
     const panelBlack = Color(0xFF171717);
     const softGrey = Color(0xFFB8B8B8);
     const borderGrey = Color(0xFF4B4B4B);
@@ -84,9 +84,6 @@ class MyApp extends StatelessWidget {
           IconThemeData(color: Color(0xFFB8B8B8)),
         ),
       ),
-      dropdownMenuTheme: const DropdownMenuThemeData(
-        textStyle: TextStyle(color: Colors.white),
-      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: panelBlack,
@@ -128,13 +125,40 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Body Setup',
       theme: theme,
-      home: const AppShell(),
+      home: const AppBootstrap(),
+    );
+  }
+}
+
+class UserAccount {
+  const UserAccount({
+    required this.name,
+    required this.age,
+    required this.gender,
+    required this.email,
+    required this.password,
+  });
+
+  final String name;
+  final String age;
+  final String gender;
+  final String email;
+  final String password;
+
+  factory UserAccount.fromJson(Map<String, dynamic> json) {
+    return UserAccount(
+      name: json['name'] as String? ?? '',
+      age: json['age']?.toString() ?? '',
+      gender: json['gender'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      password: '',
     );
   }
 }
 
 class UserProfile {
   const UserProfile({
+    this.id,
     required this.height,
     required this.weight,
     required this.age,
@@ -142,6 +166,7 @@ class UserProfile {
     required this.photoPath,
   });
 
+  final int? id;
   final String height;
   final String weight;
   final String age;
@@ -162,128 +187,156 @@ class UserProfile {
     photoPath: '',
   );
 
-  UserProfile copyWith({
-    String? height,
-    String? weight,
-    String? age,
-    String? gender,
-    String? photoPath,
-  }) {
+  factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
-      height: height ?? this.height,
-      weight: weight ?? this.weight,
-      age: age ?? this.age,
-      gender: gender ?? this.gender,
-      photoPath: photoPath ?? this.photoPath,
+      id: json['id'] as int?,
+      height: json['height_cm']?.toString() ?? '',
+      weight: json['weight_kg']?.toString() ?? '',
+      age: json['age']?.toString() ?? '',
+      gender: json['gender'] as String? ?? '',
+      photoPath: '',
     );
   }
 }
 
-class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+enum SignUpResult { success, duplicate, confirmationRequired, failure }
+
+enum LoginResult { success, invalid, failure }
+
+class AppBootstrap extends StatefulWidget {
+  const AppBootstrap({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  State<AppBootstrap> createState() => _AppBootstrapState();
 }
 
-class _AppShellState extends State<AppShell> {
-  static const _heightKey = 'profile_height';
-  static const _weightKey = 'profile_weight';
-  static const _ageKey = 'profile_age';
-  static const _genderKey = 'profile_gender';
-  static const _photoPathKey = 'profile_photo_path';
-
-  int _selectedIndex = 0;
+class _AppBootstrapState extends State<AppBootstrap> {
   bool _isLoading = true;
+  UserAccount? _currentAccount;
   UserProfile _profile = UserProfile.empty;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadAppState();
   }
 
-  Future<void> _loadProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    final profile = UserProfile(
-      height: prefs.getString(_heightKey) ?? '',
-      weight: prefs.getString(_weightKey) ?? '',
-      age: prefs.getString(_ageKey) ?? '',
-      gender: prefs.getString(_genderKey) ?? '',
-      photoPath: prefs.getString(_photoPathKey) ?? '',
-    );
-
-    if (!mounted) {
-      return;
+  Future<void> _loadAppState() async {
+    final userJson = await apiService.getCurrentAccount();
+    if (userJson != null) {
+      final records = await apiService.getBodyRecords();
+      if (!mounted) return;
+      setState(() {
+        _currentAccount = UserAccount.fromJson(userJson);
+        if (records.isNotEmpty) {
+          _profile = UserProfile.fromJson(records.first);
+        } else {
+          _profile = UserProfile.empty;
+        }
+        _isLoading = false;
+      });
+    } else {
+      await apiService.logout();
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _currentAccount = null;
+        _profile = UserProfile.empty;
+      });
     }
-
-    setState(() {
-      _profile = profile;
-      _isLoading = false;
-    });
   }
 
   Future<void> _saveProfile(UserProfile profile) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_heightKey, profile.height);
-    await prefs.setString(_weightKey, profile.weight);
-    await prefs.setString(_ageKey, profile.age);
-    await prefs.setString(_genderKey, profile.gender);
-    if (profile.photoPath.isEmpty) {
-      await prefs.remove(_photoPathKey);
-    } else {
-      await prefs.setString(_photoPathKey, profile.photoPath);
+    final height = double.tryParse(profile.height) ?? 0.0;
+    final weight = double.tryParse(profile.weight) ?? 0.0;
+    
+    final record = await apiService.createBodyRecord(
+      heightCm: height,
+      weightKg: weight,
+      age: profile.age,
+      gender: profile.gender,
+      photo: profile.photoPath.isNotEmpty ? XFile(profile.photoPath) : null,
+    );
+    
+    if (record != null && mounted) {
+      setState(() {
+        _profile = UserProfile.fromJson(record);
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Profile saved successfully')));
     }
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _profile = profile;
-      _selectedIndex = 0;
-    });
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Profile saved locally'),
-          backgroundColor: Colors.black,
-        ),
-      );
   }
 
   Future<void> _clearProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_heightKey);
-    await prefs.remove(_weightKey);
-    await prefs.remove(_ageKey);
-    await prefs.remove(_genderKey);
-    await prefs.remove(_photoPathKey);
-
-    if (!mounted) {
-      return;
+    if (_profile.id != null) {
+      await apiService.deleteBodyRecord(_profile.id!);
     }
+    
+    final records = await apiService.getBodyRecords();
+    if (!mounted) return;
 
-    setState(() {
-      _profile = UserProfile.empty;
-      _selectedIndex = 2;
-    });
+    if (records.isNotEmpty) {
+      setState(() {
+        _profile = UserProfile.fromJson(records.first);
+      });
+    } else {
+      setState(() {
+        _profile = UserProfile.empty;
+      });
+    }
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Local profile cleared'),
-          backgroundColor: Colors.black,
-        ),
-      );
+      ..showSnackBar(const SnackBar(content: Text('Record deleted')));
   }
 
-  void _goToInputTab() {
+  Future<SignUpResult> _registerAccount(UserAccount account) async {
+    final data = {
+      'name': account.name,
+      'age': account.age,
+      'gender': account.gender,
+      'email': account.email,
+      'password': account.password,
+    };
+    final result = await apiService.register(
+      name: data['name']!,
+      age: data['age']!,
+      gender: data['gender']!,
+      email: data['email']!,
+      password: data['password']!,
+    );
+    switch (result.status) {
+      case RegisterStatus.success:
+        return SignUpResult.success;
+      case RegisterStatus.duplicateLoginId:
+        return SignUpResult.duplicate;
+      case RegisterStatus.confirmationRequired:
+        return SignUpResult.confirmationRequired;
+      case RegisterStatus.failure:
+        return SignUpResult.failure;
+    }
+  }
+
+  Future<LoginResult> _login(String email, String password) async {
+    final result = await apiService.login(email, password);
+    switch (result.status) {
+      case LoginStatus.success:
+        await _loadAppState();
+        return LoginResult.success;
+      case LoginStatus.invalidCredentials:
+        return LoginResult.invalid;
+      case LoginStatus.failure:
+        return LoginResult.failure;
+    }
+  }
+
+  Future<void> _logout() async {
+    await apiService.logout();
+    if (!mounted) return;
     setState(() {
-      _selectedIndex = 1;
+      _currentAccount = null;
+      _profile = UserProfile.empty;
     });
   }
 
@@ -295,13 +348,554 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
+    if (_currentAccount == null) {
+      return AuthFlow(onLogin: _login, onRegister: _registerAccount);
+    }
+
+    return AppShell(
+      currentAccount: _currentAccount!,
+      profile: _profile,
+      onSaveProfile: _saveProfile,
+      onClearProfile: _clearProfile,
+      onLogout: _logout,
+    );
+  }
+}
+
+class AuthFlow extends StatefulWidget {
+  const AuthFlow({super.key, required this.onLogin, required this.onRegister});
+
+  final Future<LoginResult> Function(String email, String password) onLogin;
+  final Future<SignUpResult> Function(UserAccount account) onRegister;
+
+  @override
+  State<AuthFlow> createState() => _AuthFlowState();
+}
+
+class _AuthFlowState extends State<AuthFlow> {
+  bool _showSignUp = false;
+  String _prefilledEmail = '';
+
+  void _openLogin([String email = '']) {
+    setState(() {
+      _showSignUp = false;
+      _prefilledEmail = email;
+    });
+  }
+
+  void _openSignUp() {
+    setState(() {
+      _showSignUp = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _showSignUp
+        ? SignUpScreen(onRegister: widget.onRegister, onBackToLogin: _openLogin)
+        : LoginScreen(
+            onLogin: widget.onLogin,
+            onOpenSignUp: _openSignUp,
+            initialEmail: _prefilledEmail,
+          );
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({
+    super.key,
+    required this.onLogin,
+    required this.onOpenSignUp,
+    this.initialEmail = '',
+  });
+
+  final Future<LoginResult> Function(String email, String password) onLogin;
+  final VoidCallback onOpenSignUp;
+  final String initialEmail;
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _emailController;
+  final _passwordController = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void didUpdateWidget(covariant LoginScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialEmail != widget.initialEmail) {
+      _emailController.text = widget.initialEmail;
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final result = await widget.onLogin(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (result == LoginResult.invalid) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Invalid email or password')));
+    } else if (result == LoginResult.failure) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Login failed. Check Supabase Auth configuration.')),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    border: Border.all(color: const Color(0xFF4B4B4B)),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.lock_outline, color: Colors.white),
+                ),
+                const SizedBox(height: 24),
+                Text('Login', style: textTheme.displaySmall),
+                const SizedBox(height: 12),
+                Text(
+                  'Sign in with your email and password to access your body profile and movement workflow.',
+                  style: textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 28),
+                _AuthCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _AuthField(
+                        label: 'Email',
+                        child: TextFormField(
+                          controller: _emailController,
+                          style: textTheme.bodyLarge,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: _requiredEmail('Email'),
+                          decoration: const InputDecoration(
+                            hintText: 'you@example.com',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _AuthField(
+                        label: 'Password',
+                        child: TextFormField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          style: textTheme.bodyLarge,
+                          validator: _requiredField('Password'),
+                          decoration: const InputDecoration(
+                            hintText: 'Enter password',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _isSubmitting ? null : _submit,
+                    style: _primaryButtonStyle(),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Text('Login'),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: widget.onOpenSignUp,
+                    style: _secondaryButtonStyle(),
+                    child: const Text('Create account'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SignUpScreen extends StatefulWidget {
+  const SignUpScreen({
+    super.key,
+    required this.onRegister,
+    required this.onBackToLogin,
+  });
+
+  final Future<SignUpResult> Function(UserAccount account) onRegister;
+  final ValueChanged<String> onBackToLogin;
+
+  @override
+  State<SignUpScreen> createState() => _SignUpScreenState();
+}
+
+class _SignUpScreenState extends State<SignUpScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _ageController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String? _selectedGender;
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _ageController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final result = await widget.onRegister(
+      UserAccount(
+        name: _nameController.text.trim(),
+        age: _ageController.text.trim(),
+        gender: _selectedGender!,
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (result == SignUpResult.duplicate) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('That email is already registered. Use another one.'),
+          ),
+        );
+      return;
+    }
+
+    if (result == SignUpResult.confirmationRequired) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Sign up created the account, but email confirmation is enabled in Supabase.',
+            ),
+          ),
+        );
+      widget.onBackToLogin(_emailController.text.trim());
+      return;
+    }
+
+    if (result == SignUpResult.failure) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Sign up failed. Verify the Supabase schema and Auth settings.',
+            ),
+          ),
+        );
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('Sign up complete')));
+    widget.onBackToLogin(_emailController.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    border: Border.all(color: const Color(0xFF4B4B4B)),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.person_add_alt_1,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text('Create account', style: textTheme.displaySmall),
+                const SizedBox(height: 12),
+                Text(
+                  'Enter member information, add your email and password, then request registration.',
+                  style: textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 28),
+                _AuthCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _AuthField(
+                        label: 'Name',
+                        child: TextFormField(
+                          controller: _nameController,
+                          style: textTheme.bodyLarge,
+                          validator: _requiredField('Name'),
+                          decoration: const InputDecoration(
+                            hintText: 'Your name',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _AuthField(
+                        label: 'Age',
+                        child: TextFormField(
+                          controller: _ageController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          style: textTheme.bodyLarge,
+                          validator: _requiredPositiveNumber('Age'),
+                          decoration: const InputDecoration(hintText: 'Age'),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _AuthField(
+                        label: 'Gender',
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _selectedGender,
+                          dropdownColor: const Color(0xFF171717),
+                          iconEnabledColor: Colors.white,
+                          style: textTheme.bodyLarge,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Gender is required';
+                            }
+                            return null;
+                          },
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Female',
+                              child: Text('Female'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Male',
+                              child: Text('Male'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Non-binary',
+                              child: Text('Non-binary'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Prefer not to say',
+                              child: Text('Prefer not to say'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedGender = value;
+                            });
+                          },
+                          decoration: const InputDecoration(
+                            hintText: 'Select gender',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _AuthField(
+                        label: 'Email',
+                        child: TextFormField(
+                          controller: _emailController,
+                          style: textTheme.bodyLarge,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: _requiredEmail('Email'),
+                          decoration: const InputDecoration(
+                            hintText: 'you@example.com',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _AuthField(
+                        label: 'Password',
+                        child: TextFormField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          style: textTheme.bodyLarge,
+                          validator: _requiredField('Password'),
+                          decoration: const InputDecoration(
+                            hintText: 'Create password',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _isSubmitting ? null : _submit,
+                    style: _primaryButtonStyle(),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Text('Request registration'),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => widget.onBackToLogin(''),
+                    style: _secondaryButtonStyle(),
+                    child: const Text('Back to login'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AppShell extends StatefulWidget {
+  const AppShell({
+    super.key,
+    required this.currentAccount,
+    required this.profile,
+    required this.onSaveProfile,
+    required this.onClearProfile,
+    required this.onLogout,
+  });
+
+  final UserAccount currentAccount;
+  final UserProfile profile;
+  final Future<void> Function(UserProfile profile) onSaveProfile;
+  final Future<void> Function() onClearProfile;
+  final Future<void> Function() onLogout;
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  int _selectedIndex = 0;
+
+  void _goToInputTab() {
+    setState(() {
+      _selectedIndex = 1;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final pages = [
-      HomeScreen(profile: _profile, onEditProfile: _goToInputTab),
-      InputScreen(profile: _profile, onSave: _saveProfile),
-      ProfileScreen(
-        profile: _profile,
+      HomeScreen(
+        account: widget.currentAccount,
+        profile: widget.profile,
         onEditProfile: _goToInputTab,
-        onClearProfile: _clearProfile,
+      ),
+      InputScreen(profile: widget.profile, onSave: widget.onSaveProfile),
+      ProfileScreen(
+        account: widget.currentAccount,
+        profile: widget.profile,
+        onEditProfile: _goToInputTab,
+        onClearProfile: widget.onClearProfile,
+        onLogout: widget.onLogout,
       ),
     ];
 
@@ -352,10 +946,12 @@ class _AppShellState extends State<AppShell> {
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
+    required this.account,
     required this.profile,
     required this.onEditProfile,
   });
 
+  final UserAccount account;
   final UserProfile profile;
   final VoidCallback onEditProfile;
 
@@ -385,7 +981,7 @@ class HomeScreen extends StatelessWidget {
             Text('Movement readiness', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Build the body profile that will drive future physics simulation and exercise prerequisite recommendations.',
+              'Welcome ${account.name}. Build the body profile that will drive future physics simulation and exercise prerequisite recommendations.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
@@ -402,33 +998,19 @@ class HomeScreen extends StatelessWidget {
                 children: [
                   Text(
                     isComplete ? 'Profile ready' : 'Profile incomplete',
-                    style: textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                    ),
+                    style: textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     isComplete
-                        ? 'Your body data is saved locally and ready for the next analysis steps.'
+                        ? 'Your latest body record is synced to Supabase and ready for the next analysis steps.'
                         : 'Add your core body measurements first so the app can estimate movement requirements later.',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFFB8B8B8),
-                    ),
+                    style: textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
                   FilledButton(
                     onPressed: onEditProfile,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE5E5E5),
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
+                    style: _primaryButtonStyle(),
                     child: Text(
                       isComplete ? 'Edit body data' : 'Complete profile',
                     ),
@@ -440,20 +1022,6 @@ class HomeScreen extends StatelessWidget {
             Text('Current body inputs', style: textTheme.titleMedium),
             const SizedBox(height: 12),
             _SummaryGrid(profile: profile),
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF111111),
-                border: Border.all(color: const Color(0xFF4B4B4B)),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Text(
-                'Simulation and posture scoring come next. This first version focuses on collecting clean body inputs and keeping them available across the app.',
-                style: textTheme.bodyMedium?.copyWith(color: Colors.white),
-              ),
-            ),
           ],
         ),
       ),
@@ -515,20 +1083,6 @@ class _InputScreenState extends State<InputScreen> {
     super.dispose();
   }
 
-  String? _requiredNumber(String? value, String label) {
-    final trimmed = value?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return '$label is required';
-    }
-
-    final parsed = num.tryParse(trimmed);
-    if (parsed == null || parsed <= 0) {
-      return 'Enter a valid $label';
-    }
-
-    return null;
-  }
-
   Future<void> _pickPhoto(ImageSource source) async {
     final image = await _imagePicker.pickImage(
       source: source,
@@ -546,7 +1100,6 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   Future<void> _submit() async {
-    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -555,15 +1108,15 @@ class _InputScreenState extends State<InputScreen> {
       _isSaving = true;
     });
 
-    final profile = UserProfile(
-      height: _heightController.text.trim(),
-      weight: _weightController.text.trim(),
-      age: _ageController.text.trim(),
-      gender: _selectedGender!,
-      photoPath: _photoPath,
+    await widget.onSave(
+      UserProfile(
+        height: _heightController.text.trim(),
+        weight: _weightController.text.trim(),
+        age: _ageController.text.trim(),
+        gender: _selectedGender!,
+        photoPath: _photoPath,
+      ),
     );
-
-    await widget.onSave(profile);
 
     if (!mounted) {
       return;
@@ -572,37 +1125,6 @@ class _InputScreenState extends State<InputScreen> {
     setState(() {
       _isSaving = false;
     });
-  }
-
-  Widget _buildMetricField({
-    required String label,
-    required String hint,
-    required TextEditingController controller,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodyLarge),
-        const SizedBox(height: 10),
-        TextFormField(
-          controller: controller,
-          style: Theme.of(context).textTheme.bodyLarge,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          validator: (value) => _requiredNumber(value, label.toLowerCase()),
-          decoration: InputDecoration(hintText: hint),
-        ),
-      ],
-    );
-  }
-
-  String get _photoLabel {
-    if (_photoPath.isEmpty) {
-      return 'No photo selected';
-    }
-
-    final normalized = _photoPath.replaceAll('\\', '/');
-    final segments = normalized.split('/');
-    return segments.isEmpty ? 'Photo selected' : segments.last;
   }
 
   @override
@@ -617,18 +1139,6 @@ class _InputScreenState extends State<InputScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111111),
-                  border: Border.all(color: const Color(0xFF4B4B4B)),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                alignment: Alignment.center,
-                child: const Icon(Icons.tune, color: Colors.white),
-              ),
-              const SizedBox(height: 28),
               Text('Body input', style: textTheme.displaySmall),
               const SizedBox(height: 12),
               Text(
@@ -636,151 +1146,107 @@ class _InputScreenState extends State<InputScreen> {
                 style: textTheme.bodyMedium,
               ),
               const SizedBox(height: 28),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111111),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFF4B4B4B)),
-                ),
+              _AuthCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildMetricField(
+                    _AuthField(
                       label: 'Height',
-                      hint: 'cm',
-                      controller: _heightController,
+                      child: TextFormField(
+                        controller: _heightController,
+                        style: textTheme.bodyLarge,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        validator: _requiredPositiveNumber('Height'),
+                        decoration: const InputDecoration(hintText: 'cm'),
+                      ),
                     ),
                     const SizedBox(height: 18),
-                    _buildMetricField(
+                    _AuthField(
                       label: 'Weight',
-                      hint: 'kg',
-                      controller: _weightController,
+                      child: TextFormField(
+                        controller: _weightController,
+                        style: textTheme.bodyLarge,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        validator: _requiredPositiveNumber('Weight'),
+                        decoration: const InputDecoration(hintText: 'kg'),
+                      ),
                     ),
                     const SizedBox(height: 18),
-                    _buildMetricField(
+                    _AuthField(
                       label: 'Age',
-                      hint: 'years',
-                      controller: _ageController,
+                      child: TextFormField(
+                        controller: _ageController,
+                        style: textTheme.bodyLarge,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        validator: _requiredPositiveNumber('Age'),
+                        decoration: const InputDecoration(hintText: 'years'),
+                      ),
                     ),
                     const SizedBox(height: 18),
-                    Text('Gender', style: textTheme.bodyLarge),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: _selectedGender,
-                      dropdownColor: const Color(0xFF171717),
-                      iconEnabledColor: Colors.white,
-                      style: textTheme.bodyLarge,
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Female',
-                          child: Text('Female'),
+                    _AuthField(
+                      label: 'Gender',
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _selectedGender,
+                        dropdownColor: const Color(0xFF171717),
+                        iconEnabledColor: Colors.white,
+                        style: textTheme.bodyLarge,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Gender is required';
+                          }
+                          return null;
+                        },
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Female',
+                            child: Text('Female'),
+                          ),
+                          DropdownMenuItem(value: 'Male', child: Text('Male')),
+                          DropdownMenuItem(
+                            value: 'Non-binary',
+                            child: Text('Non-binary'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Prefer not to say',
+                            child: Text('Prefer not to say'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedGender = value;
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Select gender',
                         ),
-                        DropdownMenuItem(value: 'Male', child: Text('Male')),
-                        DropdownMenuItem(
-                          value: 'Non-binary',
-                          child: Text('Non-binary'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Prefer not to say',
-                          child: Text('Prefer not to say'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedGender = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Gender is required';
-                        }
-                        return null;
-                      },
-                      decoration: const InputDecoration(
-                        hintText: 'Select gender',
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111111),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFF4B4B4B)),
-                ),
+              _AuthCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Posture photo', style: textTheme.titleMedium),
                     const SizedBox(height: 8),
                     Text(
-                      'Add a photo from your gallery or take a picture now. This stays optional and saves locally with your profile.',
+                      'Add a photo from your gallery or take a picture now. This stays optional and uploads to Supabase Storage with your profile.',
                       style: textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF171717),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: const Color(0xFF4B4B4B)),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFF4B4B4B),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.photo_camera_back_outlined,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _photoPath.isEmpty
-                                      ? 'Photo status'
-                                      : 'Selected photo',
-                                  style: textTheme.bodyLarge,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(_photoLabel, style: textTheme.bodyMedium),
-                              ],
-                            ),
-                          ),
-                          if (_photoPath.isNotEmpty)
-                            IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  _photoPath = '';
-                                });
-                              },
-                              tooltip: 'Remove photo',
-                              icon: const Icon(
-                                Icons.close,
-                                color: Colors.white,
-                              ),
-                            ),
-                        ],
-                      ),
+                    Text(
+                      _photoPath.isEmpty
+                          ? 'No photo selected'
+                          : _photoPath.split('/').last,
+                      style: textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 14),
                     Row(
@@ -788,14 +1254,7 @@ class _InputScreenState extends State<InputScreen> {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () => _pickPhoto(ImageSource.gallery),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Color(0xFF6A6A6A)),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
+                            style: _secondaryButtonStyle(),
                             icon: const Icon(Icons.photo_library_outlined),
                             label: const Text('Add photo'),
                           ),
@@ -804,14 +1263,7 @@ class _InputScreenState extends State<InputScreen> {
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: () => _pickPhoto(ImageSource.camera),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFE5E5E5),
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
+                            style: _primaryButtonStyle(),
                             icon: const Icon(Icons.photo_camera_outlined),
                             label: const Text('Take picture'),
                           ),
@@ -822,32 +1274,11 @@ class _InputScreenState extends State<InputScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111111),
-                  border: Border.all(color: const Color(0xFF4B4B4B)),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Text(
-                  'This data stays on-device in v1 and updates the Home and Profile tabs immediately after save.',
-                  style: textTheme.bodyMedium?.copyWith(color: Colors.white),
-                ),
-              ),
-              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _isSaving ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFE5E5E5),
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
+                  style: _primaryButtonStyle(),
                   child: _isSaving
                       ? const SizedBox(
                           width: 20,
@@ -871,14 +1302,18 @@ class _InputScreenState extends State<InputScreen> {
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
     super.key,
+    required this.account,
     required this.profile,
     required this.onEditProfile,
     required this.onClearProfile,
+    required this.onLogout,
   });
 
+  final UserAccount account;
   final UserProfile profile;
   final VoidCallback onEditProfile;
   final Future<void> Function() onClearProfile;
+  final Future<void> Function() onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -890,39 +1325,43 @@ class ProfileScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: const Color(0xFF111111),
-                border: Border.all(color: const Color(0xFF4B4B4B)),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.person, color: Colors.white),
-            ),
-            const SizedBox(height: 28),
             Text('Profile', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Review the body data stored on this device and manage the local profile state.',
+              'Review member and body information stored in Supabase.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
-            _SummaryCard(profile: profile),
+            _AuthCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Member account', style: textTheme.titleMedium),
+                  const SizedBox(height: 16),
+                  _AccountInfoRow(label: 'Name', value: account.name),
+                  _AccountInfoRow(label: 'Age', value: account.age),
+                  _AccountInfoRow(label: 'Gender', value: account.gender),
+                  _AccountInfoRow(label: 'Email', value: account.email),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _AuthCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Saved body profile', style: textTheme.titleMedium),
+                  const SizedBox(height: 16),
+                  _SummaryGrid(profile: profile),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
                 onPressed: onEditProfile,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE5E5E5),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
+                style: _primaryButtonStyle(),
                 child: const Text('Edit profile'),
               ),
             ),
@@ -931,15 +1370,17 @@ class ProfileScreen extends StatelessWidget {
               width: double.infinity,
               child: OutlinedButton(
                 onPressed: onClearProfile,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Color(0xFF6A6A6A)),
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-                child: const Text('Clear local data'),
+                style: _secondaryButtonStyle(),
+                child: const Text('Delete latest record'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: onLogout,
+                style: _secondaryButtonStyle(),
+                child: const Text('Logout'),
               ),
             ),
           ],
@@ -949,10 +1390,10 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.profile});
+class _AuthCard extends StatelessWidget {
+  const _AuthCard({required this.child});
 
-  final UserProfile profile;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
@@ -964,12 +1405,49 @@ class _SummaryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: const Color(0xFF4B4B4B)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: child,
+    );
+  }
+}
+
+class _AuthField extends StatelessWidget {
+  const _AuthField({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodyLarge),
+        const SizedBox(height: 10),
+        child,
+      ],
+    );
+  }
+}
+
+class _AccountInfoRow extends StatelessWidget {
+  const _AccountInfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
         children: [
-          Text('Saved profile', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 16),
-          _SummaryGrid(profile: profile),
+          SizedBox(
+            width: 84,
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          Expanded(
+            child: Text(value, style: Theme.of(context).textTheme.bodyLarge),
+          ),
         ],
       ),
     );
@@ -1036,4 +1514,59 @@ class _SummaryTile extends StatelessWidget {
       ),
     );
   }
+}
+
+FormFieldValidator<String> _requiredField(String label) {
+  return (value) {
+    if ((value ?? '').trim().isEmpty) {
+      return '$label is required';
+    }
+    return null;
+  };
+}
+
+FormFieldValidator<String> _requiredEmail(String label) {
+  return (value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) {
+      return '$label is required';
+    }
+    final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+    if (!emailPattern.hasMatch(trimmed)) {
+      return 'Enter a valid $label';
+    }
+    return null;
+  };
+}
+
+FormFieldValidator<String> _requiredPositiveNumber(String label) {
+  return (value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) {
+      return '$label is required';
+    }
+    final parsed = num.tryParse(trimmed);
+    if (parsed == null || parsed <= 0) {
+      return 'Enter a valid $label';
+    }
+    return null;
+  };
+}
+
+ButtonStyle _primaryButtonStyle() {
+  return FilledButton.styleFrom(
+    backgroundColor: const Color(0xFFE5E5E5),
+    foregroundColor: Colors.black,
+    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  );
+}
+
+ButtonStyle _secondaryButtonStyle() {
+  return OutlinedButton.styleFrom(
+    foregroundColor: Colors.white,
+    side: const BorderSide(color: Color(0xFF6A6A6A)),
+    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  );
 }
