@@ -161,29 +161,19 @@ class UserProfile {
     this.id,
     required this.height,
     required this.weight,
-    required this.age,
-    required this.gender,
     required this.photoPath,
   });
 
   final int? id;
   final String height;
   final String weight;
-  final String age;
-  final String gender;
   final String photoPath;
 
-  bool get isComplete =>
-      height.isNotEmpty &&
-      weight.isNotEmpty &&
-      age.isNotEmpty &&
-      gender.isNotEmpty;
+  bool get isComplete => height.isNotEmpty && weight.isNotEmpty;
 
   static const empty = UserProfile(
     height: '',
     weight: '',
-    age: '',
-    gender: '',
     photoPath: '',
   );
 
@@ -192,11 +182,38 @@ class UserProfile {
       id: json['id'] as int?,
       height: json['height_cm']?.toString() ?? '',
       weight: json['weight_kg']?.toString() ?? '',
-      age: json['age']?.toString() ?? '',
-      gender: json['gender'] as String? ?? '',
-      photoPath: '',
+      photoPath: json['photo_path'] as String? ?? '',
     );
   }
+}
+
+enum CaptureType { photo, video, live }
+
+enum CaptureStatus { draft, ready }
+
+class MovementCaptureDraft {
+  const MovementCaptureDraft({
+    required this.type,
+    required this.mediaPath,
+    required this.fileName,
+    required this.status,
+  });
+
+  final CaptureType type;
+  final String mediaPath;
+  final String fileName;
+  final CaptureStatus status;
+
+  String get typeLabel => switch (type) {
+    CaptureType.photo => 'Photo upload',
+    CaptureType.video => 'Video upload',
+    CaptureType.live => 'Live recording',
+  };
+
+  String get statusLabel => switch (status) {
+    CaptureStatus.draft => 'Draft',
+    CaptureStatus.ready => 'Ready for analysis',
+  };
 }
 
 enum SignUpResult { success, duplicate, confirmationRequired, failure }
@@ -249,12 +266,17 @@ class _AppBootstrapState extends State<AppBootstrap> {
   Future<void> _saveProfile(UserProfile profile) async {
     final height = double.tryParse(profile.height) ?? 0.0;
     final weight = double.tryParse(profile.weight) ?? 0.0;
+    final account = _currentAccount;
+
+    if (account == null) {
+      return;
+    }
     
     final record = await apiService.createBodyRecord(
       heightCm: height,
       weightKg: weight,
-      age: profile.age,
-      gender: profile.gender,
+      age: account.age,
+      gender: account.gender,
       photo: profile.photoPath.isNotEmpty ? XFile(profile.photoPath) : null,
     );
     
@@ -875,9 +897,15 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
-  void _goToInputTab() {
+  void _goToAnalysisTab() {
     setState(() {
       _selectedIndex = 1;
+    });
+  }
+
+  void _goToProfileTab() {
+    setState(() {
+      _selectedIndex = 2;
     });
   }
 
@@ -887,13 +915,18 @@ class _AppShellState extends State<AppShell> {
       HomeScreen(
         account: widget.currentAccount,
         profile: widget.profile,
-        onEditProfile: _goToInputTab,
+        onOpenAnalysis: _goToAnalysisTab,
+        onOpenProfile: _goToProfileTab,
       ),
-      InputScreen(profile: widget.profile, onSave: widget.onSaveProfile),
+      AiAnalysisScreen(
+        profile: widget.profile,
+        onOpenProfile: _goToProfileTab,
+      ),
       ProfileScreen(
         account: widget.currentAccount,
         profile: widget.profile,
-        onEditProfile: _goToInputTab,
+        onSaveProfile: widget.onSaveProfile,
+        onOpenAnalysis: _goToAnalysisTab,
         onClearProfile: widget.onClearProfile,
         onLogout: widget.onLogout,
       ),
@@ -925,9 +958,9 @@ class _AppShellState extends State<AppShell> {
                   label: 'Home',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.tune_outlined),
-                  selectedIcon: Icon(Icons.tune),
-                  label: 'Input',
+                  icon: Icon(Icons.auto_awesome_outlined),
+                  selectedIcon: Icon(Icons.auto_awesome),
+                  label: 'AI Analysis',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.person_outline),
@@ -948,12 +981,14 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.account,
     required this.profile,
-    required this.onEditProfile,
+    required this.onOpenAnalysis,
+    required this.onOpenProfile,
   });
 
   final UserAccount account;
   final UserProfile profile;
-  final VoidCallback onEditProfile;
+  final VoidCallback onOpenAnalysis;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -1003,23 +1038,23 @@ class HomeScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     isComplete
-                        ? 'Your latest body record is synced to Supabase and ready for the next analysis steps.'
-                        : 'Add your core body measurements first so the app can estimate movement requirements later.',
+                        ? 'Your body setup is saved. Continue by capturing a movement photo, video, or live recording when you are ready.'
+                        : 'Set your core body measurements first, then capture a movement so the future assessment flow has the right context.',
                     style: textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
                   FilledButton(
-                    onPressed: onEditProfile,
+                    onPressed: isComplete ? onOpenAnalysis : onOpenProfile,
                     style: _primaryButtonStyle(),
                     child: Text(
-                      isComplete ? 'Edit body data' : 'Complete profile',
+                      isComplete ? 'Open AI analysis' : 'Complete body setup',
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            Text('Current body inputs', style: textTheme.titleMedium),
+            Text('Current body setup', style: textTheme.titleMedium),
             const SizedBox(height: 12),
             _SummaryGrid(profile: profile),
           ],
@@ -1029,23 +1064,245 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class InputScreen extends StatefulWidget {
-  const InputScreen({super.key, required this.profile, required this.onSave});
+class AiAnalysisScreen extends StatefulWidget {
+  const AiAnalysisScreen({
+    super.key,
+    required this.profile,
+    required this.onOpenProfile,
+  });
 
   final UserProfile profile;
-  final Future<void> Function(UserProfile) onSave;
+  final VoidCallback onOpenProfile;
 
   @override
-  State<InputScreen> createState() => _InputScreenState();
+  State<AiAnalysisScreen> createState() => _AiAnalysisScreenState();
 }
 
-class _InputScreenState extends State<InputScreen> {
+class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
+  final _imagePicker = ImagePicker();
+  MovementCaptureDraft? _captureDraft;
+
+  Future<void> _captureMovement(CaptureType type) async {
+    XFile? media;
+
+    switch (type) {
+      case CaptureType.photo:
+        media = await _imagePicker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1600,
+          imageQuality: 85,
+        );
+      case CaptureType.video:
+        media = await _imagePicker.pickVideo(
+          source: ImageSource.gallery,
+          maxDuration: const Duration(seconds: 30),
+        );
+      case CaptureType.live:
+        media = await _imagePicker.pickVideo(
+          source: ImageSource.camera,
+          maxDuration: const Duration(seconds: 30),
+        );
+    }
+
+    if (media == null || !mounted) {
+      return;
+    }
+
+    final selectedMedia = media;
+
+    setState(() {
+      _captureDraft = MovementCaptureDraft(
+        type: type,
+        mediaPath: selectedMedia.path,
+        fileName: selectedMedia.name,
+        status: CaptureStatus.ready,
+      );
+    });
+
+    _showCapturePlaceholder();
+  }
+
+  Future<void> _showCapturePlaceholder() async {
+    final draft = _captureDraft;
+    if (draft == null || !mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF111111),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        final textTheme = Theme.of(context).textTheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Capture queued', style: textTheme.headlineSmall),
+              const SizedBox(height: 12),
+              Text(
+                'Your ${draft.typeLabel.toLowerCase()} is attached as the next assessment input. Analysis and coaching output stay placeholder-only for now.',
+                style: textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              _StatusStrip(label: 'Source', value: draft.typeLabel),
+              _StatusStrip(label: 'File', value: draft.fileName),
+              _StatusStrip(label: 'State', value: draft.statusLabel),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: _primaryButtonStyle(),
+                  child: const Text('Back to AI analysis'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final isComplete = widget.profile.isComplete;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('AI analysis', style: textTheme.displaySmall),
+            const SizedBox(height: 12),
+            Text(
+              'Capture a movement sample for the future AI-based readiness assessment. Body setup lives in Profile as persistent user data.',
+              style: textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 28),
+            if (!isComplete) ...[
+              _AuthCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Body setup required', style: textTheme.headlineSmall),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Add your height and weight in Profile before starting an AI analysis session.',
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: widget.onOpenProfile,
+                        style: _primaryButtonStyle(),
+                        child: const Text('Open profile setup'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+            _AuthCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Movement capture', style: textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(
+                    isComplete
+                        ? 'Choose how to submit the movement you want the AI to analyze.'
+                        : 'Capture options are visible now, but they should be used after body setup is complete.',
+                    style: textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  _CaptureActionTile(
+                    icon: Icons.image_outlined,
+                    title: 'Upload photo',
+                    subtitle: 'Use a still image for posture-based checks or single-frame review.',
+                    onTap: () => _captureMovement(CaptureType.photo),
+                  ),
+                  const SizedBox(height: 12),
+                  _CaptureActionTile(
+                    icon: Icons.video_library_outlined,
+                    title: 'Upload video',
+                    subtitle: 'Import a stored movement clip for later analysis.',
+                    onTap: () => _captureMovement(CaptureType.video),
+                  ),
+                  const SizedBox(height: 12),
+                  _CaptureActionTile(
+                    icon: Icons.videocam_outlined,
+                    title: 'Record live',
+                    subtitle: 'Capture a new movement attempt directly from the camera.',
+                    onTap: () => _captureMovement(CaptureType.live),
+                  ),
+                  if (_captureDraft != null) ...[
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF171717),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: const Color(0xFF4B4B4B)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Latest capture draft', style: textTheme.bodyLarge),
+                          const SizedBox(height: 12),
+                          _StatusStrip(label: 'Type', value: _captureDraft!.typeLabel),
+                          _StatusStrip(label: 'File', value: _captureDraft!.fileName),
+                          _StatusStrip(label: 'Status', value: _captureDraft!.statusLabel),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({
+    super.key,
+    required this.account,
+    required this.profile,
+    required this.onSaveProfile,
+    required this.onOpenAnalysis,
+    required this.onClearProfile,
+    required this.onLogout,
+  });
+
+  final UserAccount account;
+  final UserProfile profile;
+  final Future<void> Function(UserProfile profile) onSaveProfile;
+  final VoidCallback onOpenAnalysis;
+  final Future<void> Function() onClearProfile;
+  final Future<void> Function() onLogout;
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _heightController;
   late final TextEditingController _weightController;
-  late final TextEditingController _ageController;
   final _imagePicker = ImagePicker();
-  String? _selectedGender;
   String _photoPath = '';
   bool _isSaving = false;
 
@@ -1054,23 +1311,15 @@ class _InputScreenState extends State<InputScreen> {
     super.initState();
     _heightController = TextEditingController(text: widget.profile.height);
     _weightController = TextEditingController(text: widget.profile.weight);
-    _ageController = TextEditingController(text: widget.profile.age);
-    _selectedGender = widget.profile.gender.isEmpty
-        ? null
-        : widget.profile.gender;
     _photoPath = widget.profile.photoPath;
   }
 
   @override
-  void didUpdateWidget(covariant InputScreen oldWidget) {
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile != widget.profile) {
       _heightController.text = widget.profile.height;
       _weightController.text = widget.profile.weight;
-      _ageController.text = widget.profile.age;
-      _selectedGender = widget.profile.gender.isEmpty
-          ? null
-          : widget.profile.gender;
       _photoPath = widget.profile.photoPath;
     }
   }
@@ -1079,11 +1328,10 @@ class _InputScreenState extends State<InputScreen> {
   void dispose() {
     _heightController.dispose();
     _weightController.dispose();
-    _ageController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickPhoto(ImageSource source) async {
+  Future<void> _pickReferenceImage(ImageSource source) async {
     final image = await _imagePicker.pickImage(
       source: source,
       maxWidth: 1600,
@@ -1108,12 +1356,10 @@ class _InputScreenState extends State<InputScreen> {
       _isSaving = true;
     });
 
-    await widget.onSave(
+    await widget.onSaveProfile(
       UserProfile(
         height: _heightController.text.trim(),
         weight: _weightController.text.trim(),
-        age: _ageController.text.trim(),
-        gender: _selectedGender!,
         photoPath: _photoPath,
       ),
     );
@@ -1128,193 +1374,6 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Body input', style: textTheme.displaySmall),
-              const SizedBox(height: 12),
-              Text(
-                'Save the physical measurements that will later shape your movement simulation model.',
-                style: textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 28),
-              _AuthCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _AuthField(
-                      label: 'Height',
-                      child: TextFormField(
-                        controller: _heightController,
-                        style: textTheme.bodyLarge,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        validator: _requiredPositiveNumber('Height'),
-                        decoration: const InputDecoration(hintText: 'cm'),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _AuthField(
-                      label: 'Weight',
-                      child: TextFormField(
-                        controller: _weightController,
-                        style: textTheme.bodyLarge,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        validator: _requiredPositiveNumber('Weight'),
-                        decoration: const InputDecoration(hintText: 'kg'),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _AuthField(
-                      label: 'Age',
-                      child: TextFormField(
-                        controller: _ageController,
-                        style: textTheme.bodyLarge,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        validator: _requiredPositiveNumber('Age'),
-                        decoration: const InputDecoration(hintText: 'years'),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _AuthField(
-                      label: 'Gender',
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _selectedGender,
-                        dropdownColor: const Color(0xFF171717),
-                        iconEnabledColor: Colors.white,
-                        style: textTheme.bodyLarge,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Gender is required';
-                          }
-                          return null;
-                        },
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Female',
-                            child: Text('Female'),
-                          ),
-                          DropdownMenuItem(value: 'Male', child: Text('Male')),
-                          DropdownMenuItem(
-                            value: 'Non-binary',
-                            child: Text('Non-binary'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Prefer not to say',
-                            child: Text('Prefer not to say'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedGender = value;
-                          });
-                        },
-                        decoration: const InputDecoration(
-                          hintText: 'Select gender',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              _AuthCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Posture photo', style: textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Add a photo from your gallery or take a picture now. This stays optional and uploads to Supabase Storage with your profile.',
-                      style: textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _photoPath.isEmpty
-                          ? 'No photo selected'
-                          : _photoPath.split('/').last,
-                      style: textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _pickPhoto(ImageSource.gallery),
-                            style: _secondaryButtonStyle(),
-                            icon: const Icon(Icons.photo_library_outlined),
-                            label: const Text('Add photo'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () => _pickPhoto(ImageSource.camera),
-                            style: _primaryButtonStyle(),
-                            icon: const Icon(Icons.photo_camera_outlined),
-                            label: const Text('Take picture'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isSaving ? null : _submit,
-                  style: _primaryButtonStyle(),
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.black,
-                          ),
-                        )
-                      : const Text('Save profile'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({
-    super.key,
-    required this.account,
-    required this.profile,
-    required this.onEditProfile,
-    required this.onClearProfile,
-    required this.onLogout,
-  });
-
-  final UserAccount account;
-  final UserProfile profile;
-  final VoidCallback onEditProfile;
-  final Future<void> Function() onClearProfile;
-  final Future<void> Function() onLogout;
-
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -1328,7 +1387,7 @@ class ProfileScreen extends StatelessWidget {
             Text('Profile', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Review member and body information stored in Supabase.',
+              'Review registration details and saved body setup stored in Supabase.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
@@ -1338,10 +1397,10 @@ class ProfileScreen extends StatelessWidget {
                 children: [
                   Text('Member account', style: textTheme.titleMedium),
                   const SizedBox(height: 16),
-                  _AccountInfoRow(label: 'Name', value: account.name),
-                  _AccountInfoRow(label: 'Age', value: account.age),
-                  _AccountInfoRow(label: 'Gender', value: account.gender),
-                  _AccountInfoRow(label: 'Email', value: account.email),
+                  _AccountInfoRow(label: 'Name', value: widget.account.name),
+                  _AccountInfoRow(label: 'Age', value: widget.account.age),
+                  _AccountInfoRow(label: 'Gender', value: widget.account.gender),
+                  _AccountInfoRow(label: 'Email', value: widget.account.email),
                 ],
               ),
             ),
@@ -1350,26 +1409,112 @@ class ProfileScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Saved body profile', style: textTheme.titleMedium),
+                  Text('Saved body setup', style: textTheme.titleMedium),
                   const SizedBox(height: 16),
-                  _SummaryGrid(profile: profile),
+                  _SummaryGrid(profile: widget.profile),
                 ],
               ),
             ),
             const SizedBox(height: 20),
+            Form(
+              key: _formKey,
+              child: _AuthCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Edit body setup', style: textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Manage the persistent body measurements used before any AI analysis session starts.',
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 18),
+                    _AuthField(
+                      label: 'Height',
+                      child: TextFormField(
+                        controller: _heightController,
+                        style: textTheme.bodyLarge,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: _requiredPositiveNumber('Height'),
+                        decoration: const InputDecoration(hintText: 'cm'),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _AuthField(
+                      label: 'Weight',
+                      child: TextFormField(
+                        controller: _weightController,
+                        style: textTheme.bodyLarge,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: _requiredPositiveNumber('Weight'),
+                        decoration: const InputDecoration(hintText: 'kg'),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text('Reference image', style: textTheme.bodyLarge),
+                    const SizedBox(height: 8),
+                    Text(
+                      _photoPath.isEmpty ? 'No image selected' : _photoPath.split('/').last,
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickReferenceImage(ImageSource.gallery),
+                            style: _secondaryButtonStyle(),
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Choose image'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () => _pickReferenceImage(ImageSource.camera),
+                            style: _primaryButtonStyle(),
+                            icon: const Icon(Icons.photo_camera_outlined),
+                            label: const Text('Take photo'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _isSaving ? null : _submit,
+                        style: _primaryButtonStyle(),
+                        child: _isSaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Text('Save body setup'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: onEditProfile,
+                onPressed: widget.profile.isComplete ? widget.onOpenAnalysis : null,
                 style: _primaryButtonStyle(),
-                child: const Text('Edit profile'),
+                child: const Text('Open AI analysis'),
               ),
             ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: onClearProfile,
+                onPressed: widget.onClearProfile,
                 style: _secondaryButtonStyle(),
                 child: const Text('Delete latest record'),
               ),
@@ -1378,7 +1523,7 @@ class ProfileScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: onLogout,
+                onPressed: widget.onLogout,
                 style: _secondaryButtonStyle(),
                 child: const Text('Logout'),
               ),
@@ -1474,14 +1619,95 @@ class _SummaryGrid extends StatelessWidget {
           value: profile.weight.isEmpty ? 'Not set' : '${profile.weight} kg',
         ),
         _SummaryTile(
-          label: 'Age',
-          value: profile.age.isEmpty ? 'Not set' : '${profile.age} years',
-        ),
-        _SummaryTile(
-          label: 'Gender',
-          value: profile.gender.isEmpty ? 'Not set' : profile.gender,
+          label: 'Reference image',
+          value: profile.photoPath.isEmpty ? 'Not set' : 'Attached',
         ),
       ],
+    );
+  }
+}
+
+class _CaptureActionTile extends StatelessWidget {
+  const _CaptureActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Ink(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF171717),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFF4B4B4B)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: Colors.white),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Icon(Icons.chevron_right, color: Colors.white),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusStrip extends StatelessWidget {
+  const _StatusStrip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          Expanded(
+            child: Text(value, style: Theme.of(context).textTheme.bodyLarge),
+          ),
+        ],
+      ),
     );
   }
 }
