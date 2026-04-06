@@ -3,8 +3,9 @@
 Flutter client for the Mayday exercise readiness project. The current app covers:
 
 - email/password sign up and login with Supabase Auth
-- body setup storage in Supabase
-- AI analysis entry UI for movement capture
+- movement goal selection UI
+- strength-plan concept UI
+- profile setup storage in Supabase
 - local testing on web, Android, and iOS
 
 ## Tech Stack
@@ -76,13 +77,14 @@ Useful when you only want to check:
 
 - navigation flow
 - login and registration UI
-- body setup screens
-- AI analysis tab layout
+- goal selection screens
+- strength-plan tab layout
+- profile setup screens
 
 Notes:
 
-- Camera-based features behave differently on web depending on the browser.
-- Web is good for UI checks, but device capture flows should still be verified on Android or iOS.
+- Camera-based profile-photo features behave differently on web depending on the browser.
+- Web is good for UI checks, but device photo flows should still be verified on Android or iOS.
 
 ## Run For Android
 
@@ -103,10 +105,9 @@ flutter run -d <device-id>
 
 Android is the best current option for testing:
 
-- gallery photo selection
-- gallery video selection
-- live camera recording flow
-- Supabase-backed sign up, login, and body setup save
+- gallery photo selection for profile setup
+- camera photo capture for profile setup
+- Supabase-backed sign up, login, and profile setup save
 
 ## Run For iOS
 
@@ -127,7 +128,7 @@ Important:
 
 - iOS build tooling requires Xcode on macOS.
 - The project currently does not include the usual iOS camera/photo usage strings in [Info.plist](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/ios/Runner/Info.plist).
-- That means image and camera flows may need additional iOS permission setup before full device testing.
+- That means profile-photo flows may need additional iOS permission setup before full device testing.
 
 ## Testing
 
@@ -153,7 +154,7 @@ For most testers:
 
 - you do not need to create your own Supabase project
 - you can run the app immediately with the existing configuration
-- sign up, login, body setup save, and storage-backed image flows should work against the shared configured project
+- sign up, login, profile setup save, and storage-backed image flows should work against the shared configured project
 
 You only need your own Supabase project if:
 
@@ -174,15 +175,16 @@ If you are setting up a fresh project, apply the SQL migrations in the repositor
 Implemented now:
 
 - authentication
-- profile/body setup persistence
-- AI analysis tab UI
-- movement capture entry points for photo, video, and live recording
+- movement goal selection UI
+- strength-plan concept UI
+- profile setup persistence and photo upload
 
 Not implemented yet:
 
 - real AI movement analysis
+- physics simulation and reinforcement learning pipeline
 - exercise prerequisite recommendation output
-- backend API usage from the `apii/` service
+- movement capture as a primary workflow
 
 ## Troubleshooting
 
