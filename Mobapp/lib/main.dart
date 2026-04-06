@@ -123,7 +123,7 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Body Setup',
+      title: 'Mayday',
       theme: theme,
       home: const AppBootstrap(),
     );
@@ -171,11 +171,7 @@ class UserProfile {
 
   bool get isComplete => height.isNotEmpty && weight.isNotEmpty;
 
-  static const empty = UserProfile(
-    height: '',
-    weight: '',
-    photoPath: '',
-  );
+  static const empty = UserProfile(height: '', weight: '', photoPath: '');
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
@@ -187,34 +183,71 @@ class UserProfile {
   }
 }
 
-enum CaptureType { photo, video, live }
-
-enum CaptureStatus { draft, ready }
-
-class MovementCaptureDraft {
-  const MovementCaptureDraft({
-    required this.type,
-    required this.mediaPath,
-    required this.fileName,
-    required this.status,
+class MovementGoal {
+  const MovementGoal({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.summary,
+    required this.focus,
+    required this.benchmark,
+    required this.jointDemand,
+    required this.exercisePlan,
   });
 
-  final CaptureType type;
-  final String mediaPath;
-  final String fileName;
-  final CaptureStatus status;
-
-  String get typeLabel => switch (type) {
-    CaptureType.photo => 'Photo upload',
-    CaptureType.video => 'Video upload',
-    CaptureType.live => 'Live recording',
-  };
-
-  String get statusLabel => switch (status) {
-    CaptureStatus.draft => 'Draft',
-    CaptureStatus.ready => 'Ready for analysis',
-  };
+  final String id;
+  final String name;
+  final String category;
+  final String summary;
+  final String focus;
+  final String benchmark;
+  final String jointDemand;
+  final String exercisePlan;
 }
+
+const demoGoals = <MovementGoal>[
+  MovementGoal(
+    id: 'backflip',
+    name: 'Backflip',
+    category: 'Power',
+    summary:
+        'Build the lower-body and trunk force needed to rotate safely and leave the floor with margin.',
+    focus: 'Hip extension, knee drive, and trunk stiffness',
+    benchmark: 'Example benchmark: squat 100 kg with stable takeoff mechanics',
+    jointDemand:
+        'High ankle, knee, hip, and trunk torque during takeoff and rotation',
+    exercisePlan:
+        'Prioritize squats, jump progressions, posterior-chain work, and landing drills.',
+  ),
+  MovementGoal(
+    id: 'pistol-squat',
+    name: 'Pistol Squat',
+    category: 'Control',
+    summary:
+        'Develop single-leg strength and balance so you can lower and stand without losing alignment.',
+    focus: 'Single-leg knee strength, ankle mobility, and hip stability',
+    benchmark:
+        'Example benchmark: controlled split squat plus single-leg sit-to-stand capacity',
+    jointDemand:
+        'Sustained knee and hip torque with high balance demand on one leg',
+    exercisePlan:
+        'Prioritize split squats, heel-elevated work, tibialis training, and tempo control.',
+  ),
+  MovementGoal(
+    id: 'handstand',
+    name: 'Handstand',
+    category: 'Skill',
+    summary:
+        'Improve overhead support strength and full-body line control so you can stack joints safely.',
+    focus:
+        'Shoulder elevation strength, wrist tolerance, and trunk line control',
+    benchmark:
+        'Example benchmark: overhead press and wall-supported line hold targets',
+    jointDemand: 'High wrist, elbow, shoulder, and trunk stabilization demand',
+    exercisePlan:
+        'Prioritize pike presses, wall holds, scapular strength, and wrist loading progressions.',
+  ),
+];
 
 enum SignUpResult { success, duplicate, confirmationRequired, failure }
 
@@ -271,7 +304,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (account == null) {
       return;
     }
-    
+
     final record = await apiService.createBodyRecord(
       heightCm: height,
       weightKg: weight,
@@ -279,14 +312,16 @@ class _AppBootstrapState extends State<AppBootstrap> {
       gender: account.gender,
       photo: profile.photoPath.isNotEmpty ? XFile(profile.photoPath) : null,
     );
-    
+
     if (record != null && mounted) {
       setState(() {
         _profile = UserProfile.fromJson(record);
       });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Profile saved successfully')));
+        ..showSnackBar(
+          const SnackBar(content: Text('Profile saved successfully')),
+        );
     }
   }
 
@@ -294,7 +329,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (_profile.id != null) {
       await apiService.deleteBodyRecord(_profile.id!);
     }
-    
+
     final records = await apiService.getBodyRecords();
     if (!mounted) return;
 
@@ -491,12 +526,16 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result == LoginResult.invalid) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Invalid email or password')));
+        ..showSnackBar(
+          const SnackBar(content: Text('Invalid email or password')),
+        );
     } else if (result == LoginResult.failure) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('Login failed. Check Supabase Auth configuration.')),
+          const SnackBar(
+            content: Text('Login failed. Check Supabase Auth configuration.'),
+          ),
         );
     }
   }
@@ -896,8 +935,9 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
+  MovementGoal? _selectedGoal;
 
-  void _goToAnalysisTab() {
+  void _goToPlanTab() {
     setState(() {
       _selectedIndex = 1;
     });
@@ -912,21 +952,33 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      HomeScreen(
+      GoalScreen(
         account: widget.currentAccount,
         profile: widget.profile,
-        onOpenAnalysis: _goToAnalysisTab,
+        selectedGoal: _selectedGoal,
+        onSelectGoal: (goal) {
+          setState(() {
+            _selectedGoal = goal;
+          });
+        },
+        onOpenPlan: _goToPlanTab,
         onOpenProfile: _goToProfileTab,
       ),
-      AiAnalysisScreen(
+      PlanScreen(
         profile: widget.profile,
+        goal: _selectedGoal,
         onOpenProfile: _goToProfileTab,
+        onOpenGoal: () {
+          setState(() {
+            _selectedIndex = 0;
+          });
+        },
       ),
       ProfileScreen(
         account: widget.currentAccount,
         profile: widget.profile,
         onSaveProfile: widget.onSaveProfile,
-        onOpenAnalysis: _goToAnalysisTab,
+        onOpenPlan: _goToPlanTab,
         onClearProfile: widget.onClearProfile,
         onLogout: widget.onLogout,
       ),
@@ -953,14 +1005,14 @@ class _AppShellState extends State<AppShell> {
               },
               destinations: const [
                 NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: 'Home',
+                  icon: Icon(Icons.flag_outlined),
+                  selectedIcon: Icon(Icons.flag),
+                  label: 'Goal',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.auto_awesome_outlined),
-                  selectedIcon: Icon(Icons.auto_awesome),
-                  label: 'AI Analysis',
+                  icon: Icon(Icons.rule_folder_outlined),
+                  selectedIcon: Icon(Icons.rule_folder),
+                  label: 'Plan',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.person_outline),
@@ -976,24 +1028,29 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({
+class GoalScreen extends StatelessWidget {
+  const GoalScreen({
     super.key,
     required this.account,
     required this.profile,
-    required this.onOpenAnalysis,
+    required this.selectedGoal,
+    required this.onSelectGoal,
+    required this.onOpenPlan,
     required this.onOpenProfile,
   });
 
   final UserAccount account;
   final UserProfile profile;
-  final VoidCallback onOpenAnalysis;
+  final MovementGoal? selectedGoal;
+  final ValueChanged<MovementGoal> onSelectGoal;
+  final VoidCallback onOpenPlan;
   final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final isComplete = profile.isComplete;
+    final highlightedGoal = selectedGoal ?? demoGoals.first;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1010,13 +1067,13 @@ class HomeScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               alignment: Alignment.center,
-              child: const Icon(Icons.motion_photos_on, color: Colors.white),
+              child: const Icon(Icons.flag, color: Colors.white),
             ),
             const SizedBox(height: 24),
-            Text('Movement readiness', style: textTheme.displaySmall),
+            Text('Choose a goal', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Welcome ${account.name}. Build the body profile that will drive future physics simulation and exercise prerequisite recommendations.',
+              'Welcome ${account.name}. Start with the movement you want to achieve, then Mayday translates the required body capacity into simple training targets.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
@@ -1032,29 +1089,78 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isComplete ? 'Profile ready' : 'Profile incomplete',
+                    selectedGoal == null
+                        ? 'No movement selected'
+                        : 'Selected movement',
                     style: textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    isComplete
-                        ? 'Your body setup is saved. Continue by capturing a movement photo, video, or live recording when you are ready.'
-                        : 'Set your core body measurements first, then capture a movement so the future assessment flow has the right context.',
+                    selectedGoal == null
+                        ? 'Pick a target movement first. The plan screen will turn that goal into understandable strength requirements.'
+                        : '${highlightedGoal.name}: ${highlightedGoal.summary}',
                     style: textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: isComplete ? onOpenAnalysis : onOpenProfile,
-                    style: _primaryButtonStyle(),
-                    child: Text(
-                      isComplete ? 'Open AI analysis' : 'Complete body setup',
-                    ),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton(
+                        onPressed: onOpenPlan,
+                        style: _primaryButtonStyle(),
+                        child: const Text('Open plan'),
+                      ),
+                      OutlinedButton(
+                        onPressed: onOpenProfile,
+                        style: _secondaryButtonStyle(),
+                        child: Text(
+                          isComplete
+                              ? 'Edit profile setup'
+                              : 'Complete profile setup',
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            Text('Current body setup', style: textTheme.titleMedium),
+            Text('Search movements', style: textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _AuthCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    readOnly: true,
+                    style: textTheme.bodyLarge,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search, color: Colors.white),
+                      hintText: 'Search for a movement goal',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'UI-first concept state: search is present for the intended flow, and suggested goals below drive the current demo.',
+                    style: textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Suggested goals', style: textTheme.titleMedium),
+            const SizedBox(height: 12),
+            for (final goal in demoGoals) ...[
+              _GoalCard(
+                goal: goal,
+                isSelected: selectedGoal?.id == goal.id,
+                onTap: () => onSelectGoal(goal),
+              ),
+              if (goal != demoGoals.last) const SizedBox(height: 12),
+            ],
+            const SizedBox(height: 20),
+            Text('Profile setup status', style: textTheme.titleMedium),
             const SizedBox(height: 12),
             _SummaryGrid(profile: profile),
           ],
@@ -1064,114 +1170,24 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class AiAnalysisScreen extends StatefulWidget {
-  const AiAnalysisScreen({
+class PlanScreen extends StatelessWidget {
+  const PlanScreen({
     super.key,
     required this.profile,
+    required this.goal,
     required this.onOpenProfile,
+    required this.onOpenGoal,
   });
 
   final UserProfile profile;
+  final MovementGoal? goal;
   final VoidCallback onOpenProfile;
-
-  @override
-  State<AiAnalysisScreen> createState() => _AiAnalysisScreenState();
-}
-
-class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
-  final _imagePicker = ImagePicker();
-  MovementCaptureDraft? _captureDraft;
-
-  Future<void> _captureMovement(CaptureType type) async {
-    XFile? media;
-
-    switch (type) {
-      case CaptureType.photo:
-        media = await _imagePicker.pickImage(
-          source: ImageSource.gallery,
-          maxWidth: 1600,
-          imageQuality: 85,
-        );
-      case CaptureType.video:
-        media = await _imagePicker.pickVideo(
-          source: ImageSource.gallery,
-          maxDuration: const Duration(seconds: 30),
-        );
-      case CaptureType.live:
-        media = await _imagePicker.pickVideo(
-          source: ImageSource.camera,
-          maxDuration: const Duration(seconds: 30),
-        );
-    }
-
-    if (media == null || !mounted) {
-      return;
-    }
-
-    final selectedMedia = media;
-
-    setState(() {
-      _captureDraft = MovementCaptureDraft(
-        type: type,
-        mediaPath: selectedMedia.path,
-        fileName: selectedMedia.name,
-        status: CaptureStatus.ready,
-      );
-    });
-
-    _showCapturePlaceholder();
-  }
-
-  Future<void> _showCapturePlaceholder() async {
-    final draft = _captureDraft;
-    if (draft == null || !mounted) {
-      return;
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF111111),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (context) {
-        final textTheme = Theme.of(context).textTheme;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Capture queued', style: textTheme.headlineSmall),
-              const SizedBox(height: 12),
-              Text(
-                'Your ${draft.typeLabel.toLowerCase()} is attached as the next assessment input. Analysis and coaching output stay placeholder-only for now.',
-                style: textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 20),
-              _StatusStrip(label: 'Source', value: draft.typeLabel),
-              _StatusStrip(label: 'File', value: draft.fileName),
-              _StatusStrip(label: 'State', value: draft.statusLabel),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  style: _primaryButtonStyle(),
-                  child: const Text('Back to AI analysis'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  final VoidCallback onOpenGoal;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final isComplete = widget.profile.isComplete;
+    final isComplete = profile.isComplete;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1179,29 +1195,60 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('AI analysis', style: textTheme.displaySmall),
+            Text('Strength plan', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Capture a movement sample for the future AI-based readiness assessment. Body setup lives in Profile as persistent user data.',
+              'This screen translates a target movement into understandable body-capacity goals. The current build uses polished demo content to shape the future product.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
-            if (!isComplete) ...[
+            if (goal == null) ...[
               _AuthCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Body setup required', style: textTheme.headlineSmall),
+                    Text(
+                      'Select a movement first',
+                      style: textTheme.headlineSmall,
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      'Add your height and weight in Profile before starting an AI analysis session.',
+                      'Choose a goal in the Goal tab before Mayday can show what to strengthen and how to interpret the requirement.',
                       style: textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: widget.onOpenProfile,
+                        onPressed: onOpenGoal,
+                        style: _primaryButtonStyle(),
+                        child: const Text('Open goal selection'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+            if (!isComplete) ...[
+              _AuthCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Profile setup required',
+                      style: textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Add your core measurements and skeletal reference photo in Profile Setup so future simulation can use the right body context.',
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: onOpenProfile,
                         style: _primaryButtonStyle(),
                         child: const Text('Open profile setup'),
                       ),
@@ -1211,64 +1258,44 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
               ),
               const SizedBox(height: 20),
             ],
-            _AuthCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Movement capture', style: textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Text(
-                    isComplete
-                        ? 'Choose how to submit the movement you want the AI to analyze.'
-                        : 'Capture options are visible now, but they should be used after body setup is complete.',
-                    style: textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 20),
-                  _CaptureActionTile(
-                    icon: Icons.image_outlined,
-                    title: 'Upload photo',
-                    subtitle: 'Use a still image for posture-based checks or single-frame review.',
-                    onTap: () => _captureMovement(CaptureType.photo),
-                  ),
-                  const SizedBox(height: 12),
-                  _CaptureActionTile(
-                    icon: Icons.video_library_outlined,
-                    title: 'Upload video',
-                    subtitle: 'Import a stored movement clip for later analysis.',
-                    onTap: () => _captureMovement(CaptureType.video),
-                  ),
-                  const SizedBox(height: 12),
-                  _CaptureActionTile(
-                    icon: Icons.videocam_outlined,
-                    title: 'Record live',
-                    subtitle: 'Capture a new movement attempt directly from the camera.',
-                    onTap: () => _captureMovement(CaptureType.live),
-                  ),
-                  if (_captureDraft != null) ...[
+            if (goal != null) ...[
+              _AuthCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(goal!.name, style: textTheme.headlineSmall),
+                    const SizedBox(height: 8),
+                    Text(goal!.summary, style: textTheme.bodyMedium),
                     const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF171717),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: const Color(0xFF4B4B4B)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Latest capture draft', style: textTheme.bodyLarge),
-                          const SizedBox(height: 12),
-                          _StatusStrip(label: 'Type', value: _captureDraft!.typeLabel),
-                          _StatusStrip(label: 'File', value: _captureDraft!.fileName),
-                          _StatusStrip(label: 'Status', value: _captureDraft!.statusLabel),
-                        ],
-                      ),
-                    ),
+                    _StatusStrip(label: 'Category', value: goal!.category),
+                    _StatusStrip(label: 'Focus', value: goal!.focus),
+                    _StatusStrip(label: 'Benchmark', value: goal!.benchmark),
                   ],
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 20),
+              _SectionCard(
+                title: 'Required body capacity',
+                body:
+                    'Demo UI state. In the full product, physics simulation and reinforcement learning will estimate how much joint torque and support capacity this movement needs for your body.',
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Joint demand translation',
+                body: goal!.jointDemand,
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Training direction',
+                body: goal!.exercisePlan,
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Future movement capture',
+                body:
+                    'Movement capture is intentionally removed from the primary workflow for now. It may return later after the pose-estimation noise problem is solved.',
+              ),
+            ],
           ],
         ),
       ),
@@ -1282,7 +1309,7 @@ class ProfileScreen extends StatefulWidget {
     required this.account,
     required this.profile,
     required this.onSaveProfile,
-    required this.onOpenAnalysis,
+    required this.onOpenPlan,
     required this.onClearProfile,
     required this.onLogout,
   });
@@ -1290,7 +1317,7 @@ class ProfileScreen extends StatefulWidget {
   final UserAccount account;
   final UserProfile profile;
   final Future<void> Function(UserProfile profile) onSaveProfile;
-  final VoidCallback onOpenAnalysis;
+  final VoidCallback onOpenPlan;
   final Future<void> Function() onClearProfile;
   final Future<void> Function() onLogout;
 
@@ -1387,7 +1414,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Text('Profile', style: textTheme.displaySmall),
             const SizedBox(height: 12),
             Text(
-              'Review registration details and saved body setup stored in Supabase.',
+              'Review account details and complete profile setup for the movement-readiness model.',
               style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 28),
@@ -1399,7 +1426,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 16),
                   _AccountInfoRow(label: 'Name', value: widget.account.name),
                   _AccountInfoRow(label: 'Age', value: widget.account.age),
-                  _AccountInfoRow(label: 'Gender', value: widget.account.gender),
+                  _AccountInfoRow(
+                    label: 'Gender',
+                    value: widget.account.gender,
+                  ),
                   _AccountInfoRow(label: 'Email', value: widget.account.email),
                 ],
               ),
@@ -1422,10 +1452,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Edit body setup', style: textTheme.titleMedium),
+                    Text('Profile setup', style: textTheme.titleMedium),
                     const SizedBox(height: 8),
                     Text(
-                      'Manage the persistent body measurements used before any AI analysis session starts.',
+                      'Store the core body information used before generating a movement-readiness plan. The photo is used only for skeletal-structure identification.',
                       style: textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 18),
@@ -1434,7 +1464,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: TextFormField(
                         controller: _heightController,
                         style: textTheme.bodyLarge,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         validator: _requiredPositiveNumber('Height'),
                         decoration: const InputDecoration(hintText: 'cm'),
                       ),
@@ -1445,16 +1477,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: TextFormField(
                         controller: _weightController,
                         style: textTheme.bodyLarge,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         validator: _requiredPositiveNumber('Weight'),
                         decoration: const InputDecoration(hintText: 'kg'),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Text('Reference image', style: textTheme.bodyLarge),
+                    Text(
+                      'Skeletal reference photo',
+                      style: textTheme.bodyLarge,
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      _photoPath.isEmpty ? 'No image selected' : _photoPath.split('/').last,
+                      _photoPath.isEmpty
+                          ? 'No photo selected'
+                          : _photoPath.split('/').last,
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Use one clear full-body photo. This is not for live tracking or real-time posture correction.',
                       style: textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 14),
@@ -1462,16 +1506,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: () => _pickReferenceImage(ImageSource.gallery),
+                            onPressed: () =>
+                                _pickReferenceImage(ImageSource.gallery),
                             style: _secondaryButtonStyle(),
                             icon: const Icon(Icons.photo_library_outlined),
-                            label: const Text('Choose image'),
+                            label: const Text('Choose photo'),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: () => _pickReferenceImage(ImageSource.camera),
+                            onPressed: () =>
+                                _pickReferenceImage(ImageSource.camera),
                             style: _primaryButtonStyle(),
                             icon: const Icon(Icons.photo_camera_outlined),
                             label: const Text('Take photo'),
@@ -1494,7 +1540,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   color: Colors.black,
                                 ),
                               )
-                            : const Text('Save body setup'),
+                            : const Text('Save profile setup'),
                       ),
                     ),
                   ],
@@ -1505,9 +1551,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: widget.profile.isComplete ? widget.onOpenAnalysis : null,
+                onPressed: widget.profile.isComplete ? widget.onOpenPlan : null,
                 style: _primaryButtonStyle(),
-                child: const Text('Open AI analysis'),
+                child: const Text('Open strength plan'),
               ),
             ),
             const SizedBox(height: 12),
@@ -1619,7 +1665,7 @@ class _SummaryGrid extends StatelessWidget {
           value: profile.weight.isEmpty ? 'Not set' : '${profile.weight} kg',
         ),
         _SummaryTile(
-          label: 'Reference image',
+          label: 'Skeletal photo',
           value: profile.photoPath.isEmpty ? 'Not set' : 'Attached',
         ),
       ],
@@ -1627,17 +1673,15 @@ class _SummaryGrid extends StatelessWidget {
   }
 }
 
-class _CaptureActionTile extends StatelessWidget {
-  const _CaptureActionTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
+class _GoalCard extends StatelessWidget {
+  const _GoalCard({
+    required this.goal,
+    required this.isSelected,
     required this.onTap,
   });
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
+  final MovementGoal goal;
+  final bool isSelected;
   final VoidCallback onTap;
 
   @override
@@ -1648,9 +1692,11 @@ class _CaptureActionTile extends StatelessWidget {
       child: Ink(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: const Color(0xFF171717),
+          color: isSelected ? const Color(0xFF1E1E1E) : const Color(0xFF171717),
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: const Color(0xFF4B4B4B)),
+          border: Border.all(
+            color: isSelected ? Colors.white : const Color(0xFF4B4B4B),
+          ),
         ),
         child: Row(
           children: [
@@ -1662,26 +1708,50 @@ class _CaptureActionTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
               ),
               alignment: Alignment.center,
-              child: Icon(icon, color: Colors.white),
+              child: const Icon(Icons.track_changes, color: Colors.white),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: Theme.of(context).textTheme.bodyLarge),
+                  Text(goal.name, style: Theme.of(context).textTheme.bodyLarge),
                   const SizedBox(height: 4),
                   Text(
-                    subtitle,
+                    '${goal.category} • ${goal.focus}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 12),
-            const Icon(Icons.chevron_right, color: Colors.white),
+            Icon(
+              isSelected ? Icons.check_circle : Icons.chevron_right,
+              color: Colors.white,
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text(body, style: Theme.of(context).textTheme.bodyMedium),
+        ],
       ),
     );
   }
