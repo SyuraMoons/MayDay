@@ -15,7 +15,7 @@ At the current stage, the main implemented work is the Flutter mobile app UI and
 
 ## Repository Structure
 
-### [`Mobapp/`](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp)
+### [`Mobapp/`](./Mobapp)
 
 Flutter client application.
 
@@ -29,9 +29,9 @@ This is the main part to run right now. It currently includes:
 
 Start here if you want to test the project.
 
-Detailed setup and run instructions are in [Mobapp/README.md](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/README.md).
+Detailed setup and run instructions are in [Mobapp/README.md](./Mobapp/README.md).
 
-### [`supabase/`](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/supabase)
+### [`supabase/`](./supabase)
 
 Supabase SQL migrations and schema setup.
 
@@ -71,7 +71,7 @@ flutter pub get
 flutter run -d chrome
 ```
 
-You can also test on Android or iOS. Full instructions are in [Mobapp/README.md](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/README.md).
+You can also test on Android or iOS. Full instructions are in [Mobapp/README.md](./Mobapp/README.md).
 
 ## Supabase Note
 

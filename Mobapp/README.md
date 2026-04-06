@@ -63,7 +63,7 @@ flutter pub get
 
 3. Run the app on your target platform.
 
-No additional Supabase setup is required for basic testing in the current project. The app already points to a configured Supabase instance through [api_service.dart](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/lib/api_service.dart).
+No additional Supabase setup is required for basic testing in the current project. The app already points to a configured Supabase instance through [api_service.dart](./lib/api_service.dart).
 
 ## Run For Web
 
@@ -127,7 +127,7 @@ flutter run -d <device-id>
 Important:
 
 - iOS build tooling requires Xcode on macOS.
-- The project currently does not include the usual iOS camera/photo usage strings in [Info.plist](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/ios/Runner/Info.plist).
+- The project currently does not include the usual iOS camera/photo usage strings in [Info.plist](./ios/Runner/Info.plist).
 - That means profile-photo flows may need additional iOS permission setup before full device testing.
 
 ## Testing
@@ -148,7 +148,7 @@ Current automated coverage is minimal and mainly checks that the app opens on th
 
 ## Supabase Configuration
 
-This app currently uses the Supabase project values already defined in [api_service.dart](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/lib/api_service.dart).
+This app currently uses the Supabase project values already defined in [api_service.dart](./lib/api_service.dart).
 
 For most testers:
 
@@ -168,7 +168,7 @@ The mobile app expects these Supabase resources to exist:
 - `body_records` table
 - `profile-photos` storage bucket
 
-If you are setting up a fresh project, apply the SQL migrations in the repository under [`supabase/migrations`](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/supabase/migrations).
+If you are setting up a fresh project, apply the SQL migrations in the repository under [`supabase/migrations`](../supabase/migrations).
 
 ## Current Scope
 
@@ -201,5 +201,5 @@ Supabase login or save fails:
 
 Camera or gallery actions fail on iOS:
 
-- add the required iOS permission descriptions to [Info.plist](/Users/harfi/Documents/Project/Capstone-jbnu/maydayy/Mobapp/ios/Runner/Info.plist)
+- add the required iOS permission descriptions to [Info.plist](./ios/Runner/Info.plist)
 - retest on simulator or device
